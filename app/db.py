@@ -3,11 +3,8 @@ from contextlib import contextmanager
 
 from psycopg2 import pool
 
-
-# ThreadedConnectionPool — потому что uvicorn по умолчанию обслуживает
-# синхронные path-функции в пуле потоков (run_in_threadpool), значит
-# к пулу соединений может одновременно обращаться несколько потоков.
-# SimpleConnectionPool для этого не потокобезопасен.
+#Выбран, чтобы избегать гонку данных, SimpleConnectionPull не синхронизирует доступ
+#11 одновременный запрос выкинет ошибку, минус синхронности
 connection_pool = pool.ThreadedConnectionPool(
     minconn=1,
     maxconn=10,
@@ -17,6 +14,9 @@ connection_pool = pool.ThreadedConnectionPool(
 
 @contextmanager
 def _borrowed_connection():
+    """
+    Контекстный менеджер, который отдаёт свободное соединение и после кладёт его обратно.
+    """
     conn = connection_pool.getconn()
     try:
         yield conn
@@ -26,17 +26,9 @@ def _borrowed_connection():
 
 def get_db():
     """
-    FastAPI-зависимость. Отдаёт соединение с открытой транзакцией
-    (psycopg2 по умолчанию autocommit=False).
+    всё, что происходит в эндпоинте, заходит в одну транзакцию.
 
-    Всё, что path-функция делает с этим соединением между `yield` и
-    возвратом ответа, попадает в одну и ту же транзакцию:
-      - если функция отработала без исключений -> conn.commit()
-      - если было исключение -> conn.rollback(), состояние в БД
-        остаётся таким, каким было до запроса.
-
-    Это и есть гарантия из п.3 ТЗ: платёж и активация подписки
-    коммитятся вместе или не коммитятся вовсе.
+    Либо всё удачно коммитится, либо откатывается до начала транзакции. 
     """
     with _borrowed_connection() as conn:
         try:
