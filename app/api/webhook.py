@@ -3,7 +3,7 @@ from psycopg2.extensions import connection as PGConnection
 
 from app.db import get_db
 from app.schemas import PaymentResponse, PaymentWebhook
-from services.payments import PaymentsService
+from app.services.payments import PaymentsService
 
 payment_router = APIRouter(prefix="/webhook", tags=["payments"])
 

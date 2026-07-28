@@ -1,4 +1,6 @@
+from fastapi import HTTPException
 from psycopg2.extensions import connection as PGConnection
+import time
 
 from app.enums import PaymentStatusBank, PaymentStatusServer
 from app.schemas import PaymentResponse, PaymentWebhook
@@ -14,13 +16,18 @@ class PaymentsService:
 
     def process_webhook(self, payload: PaymentWebhook) -> PaymentResponse:
         with self._conn.cursor() as cur:
-            applied_status = self._upsert_payment(cur, payload)
+            try:
+                applied_status = self._upsert_payment(cur, payload)
+            except Exception as e:
+                self._conn.rollback()
+                raise HTTPException(status_code=422, detail=f"Ошибка при обработке платежа: \n{e}")
 
             if applied_status is None:
                 # CONFIRMED или тот же status + payment_id
                 return PaymentResponse(status=PaymentStatusServer.ALREADY_PROCESSED, payment_id=payload.payment_id)
 
             if applied_status == PaymentStatusBank.CONFIRMED:
+                time.sleep(5) # Имитация долгой работы
                 self._activate_subscription(cur, payload.user_id)
 
         return PaymentResponse(status=PaymentStatusServer.PROCESSED, payment_id=payload.payment_id)
